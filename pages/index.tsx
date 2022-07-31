@@ -1,9 +1,69 @@
+// lib
 import type { NextPage } from 'next'
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { initializeApp } from "firebase/app"
+import { getDatabase, ref, set, get, onChildChanged, update, push, child, onValue, Database, DatabaseReference } from "firebase/database";
+
+// components
 import Head from 'next/head'
-import Image from 'next/image'
+// import Image from 'next/image'
+
+// style
 import styles from '../styles/Home.module.css'
 
-const Home: NextPage = () => {
+interface messageListType {
+  username: string
+  message: string
+}
+
+interface HomeProps {
+  config: object
+}
+
+const Home: NextPage<HomeProps> = ({config}) => {
+  const ROOM_NAME = "room1"
+
+  const db = useRef<Database>()
+  const starCountRef = useRef<DatabaseReference>()
+
+  const [status, setStatus] = useState<"standby" | "join">("standby")
+  const [userName, setUserName] = useState<string>("")
+  const [message, setMessage] = useState<string>("")
+  const [messageList, setMessageList] = useState<messageListType[]>([])
+
+  useEffect(() => {
+    const app = initializeApp(config)
+    const database = getDatabase(app)
+    db.current = database
+
+    starCountRef.current = ref(database, ROOM_NAME)
+
+    onValue(starCountRef.current, (snapshot) => {
+      const data = snapshot.val()
+      const dataList = Object.entries(data).map(data => data[1]) as messageListType[]
+      setMessageList(dataList)
+      console.log(snapshot)
+    })
+  }, [])
+
+  const postMessage = useCallback((username: string, message: string) => {
+    if(!db.current || !starCountRef.current) return
+
+    const newPostKey = push(child(starCountRef.current, ROOM_NAME)).key
+
+    const updates = {}
+    const postData = {
+      username: username,
+      message: message,
+    }
+    // @ts-ignore
+    updates[`/${ROOM_NAME}/` + newPostKey] = postData
+    // @ts-ignore
+    // updates['/user-posts/' + newPostKey] = postData;
+
+    update(ref(db.current), updates)
+  }, [])
+
   return (
     <div>
       <Head>
@@ -13,10 +73,62 @@ const Home: NextPage = () => {
       </Head>
 
       <main className={styles.content}>
-        <h1 className="title">Easy Chat</h1>
+        <h1 className="title">ゆるチャ</h1>
         <div className="box">
-          <input className="input" type="text" placeholder="your name" />
-          <button className="button is-primary">Start</button>
+          {status === "join" ? (
+            <div>
+              {messageList.map(data => (
+                <div className={styles.message_box}>
+                  <div className={styles.message_name}>{data.username}</div>
+                  <div>{data.message}</div>
+                </div>
+              ))}
+              <div className={styles.chat_write_box}>
+                <input
+                  className="input is-rounded"
+                  type="text"
+                  placeholder="メッセージ"
+                  value={message}
+                  onChange={(e) => {
+                    setMessage(e.target.value)
+                  }}
+                />
+                <button
+                  className="button is-primary"
+                  onClick={() => {
+                    postMessage(userName, message)
+                    setMessage("")
+                  }}
+                >
+                  送信
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="field">
+                <label className="label">おなまえ</label>
+                <div className="control">
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="名無し"
+                    onChange={(e) => {
+                      setUserName(e.target.value)
+                    }}
+                  />
+                </div>
+              </div>
+              <button
+                className="button is-primary"
+                onClick={() => {
+                  setStatus("join")
+                }}
+              >
+                参加
+              </button>
+            </>
+          )}
         </div>
       </main>
 
@@ -34,6 +146,25 @@ const Home: NextPage = () => {
       </footer> */}
     </div>
   )
+}
+
+export async function getStaticProps() {
+  const firebaseConfig = {
+    apiKey: process.env.FIREBASE_API_KEY,
+    authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.FIREBASE_APP_ID,
+    databaseURL: process.env.FIREBASE_DATABASE_URL,
+  }
+  // const app = await initializeApp(firebaseConfig)
+  // const database = getDatabase(app);
+  return {
+    props: {
+      config: firebaseConfig,
+    }
+  }
 }
 
 export default Home
