@@ -1,3 +1,8 @@
+.box {
+  max-height: 800px;
+  overflow-y: scroll;
+}
+
 .content {
   width: 1024px;
   margin: auto;
@@ -22,4 +27,10 @@
 .message_name {
   font-size: 12px;
   font-weight: bold;
+}
+
+.message_date {
+  display: inline-block;
+  margin-left: 10px;
+  color: gray;
 }

@@ -2,7 +2,7 @@
 import type { NextPage } from 'next'
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { initializeApp } from "firebase/app"
-import { getDatabase, ref, set, get, onChildChanged, update, push, child, onValue, Database, DatabaseReference } from "firebase/database";
+import { getDatabase, ref, update, push, child, onValue, onDisconnect, Database, DatabaseReference } from "firebase/database";
 
 // components
 import Head from 'next/head'
@@ -12,8 +12,14 @@ import Head from 'next/head'
 import styles from '../styles/Home.module.css'
 
 interface messageListType {
+  date: string
   username: string
   message: string
+}
+
+interface userListType {
+  userId: string
+  username: string
 }
 
 interface HomeProps {
@@ -22,14 +28,18 @@ interface HomeProps {
 
 const Home: NextPage<HomeProps> = ({config}) => {
   const ROOM_NAME = "room1"
+  const USERS = `${ROOM_NAME}_users`
 
   const db = useRef<Database>()
   const starCountRef = useRef<DatabaseReference>()
+  const usersRef = useRef<DatabaseReference>()
+  const myUserId = useRef<string>()
 
   const [status, setStatus] = useState<"standby" | "join">("standby")
   const [userName, setUserName] = useState<string>("")
   const [message, setMessage] = useState<string>("")
   const [messageList, setMessageList] = useState<messageListType[]>([])
+  const [userList, setUserList] = useState<userListType[]>([])
 
   useEffect(() => {
     const app = initializeApp(config)
@@ -37,13 +47,27 @@ const Home: NextPage<HomeProps> = ({config}) => {
     db.current = database
 
     starCountRef.current = ref(database, ROOM_NAME)
+    usersRef.current = ref(database, USERS)
 
+    // メッセージデータの取得
     onValue(starCountRef.current, (snapshot) => {
       const data = snapshot.val()
+      if(!data) return
       const dataList = Object.entries(data).map(data => data[1]) as messageListType[]
       setMessageList(dataList)
       console.log(snapshot)
     })
+
+    // ユーザーデータの取得
+    onValue(usersRef.current, (snapshot) => {
+      const data = snapshot.val()
+      if(!data) return
+      const dataList = Object.entries(data).map(data => data[1]) as userListType[]
+      setUserList(dataList)
+    })
+
+    // TODO: コンパイルエラーの修正
+    // TODO: vercelに環境変数の設定
   }, [])
 
   const postMessage = useCallback((username: string, message: string) => {
@@ -51,18 +75,49 @@ const Home: NextPage<HomeProps> = ({config}) => {
 
     const newPostKey = push(child(starCountRef.current, ROOM_NAME)).key
 
+    const formatDate = (dateTime: Date)=>{
+      let formatted_date = dateTime.getFullYear() + "-" + (dateTime.getMonth() + 1) + "-" + dateTime.getDate() + " " + dateTime.getHours() + ":" + dateTime.getMinutes() + ":" + dateTime.getSeconds();
+      return formatted_date;
+    }
+
     const updates = {}
     const postData = {
+      date: formatDate(new Date()),
       username: username,
       message: message,
     }
     // @ts-ignore
-    updates[`/${ROOM_NAME}/` + newPostKey] = postData
+    updates[`/${ROOM_NAME}/${newPostKey}`] = postData
     // @ts-ignore
     // updates['/user-posts/' + newPostKey] = postData;
 
     update(ref(db.current), updates)
   }, [])
+
+  const joinUser = useCallback((myUserId: string, username: string) => {
+    if(!db.current || !usersRef.current) return
+
+    const newPostKey = push(child(usersRef.current, USERS)).key
+
+    const updates = {}
+    const postData = {
+      userId: myUserId,
+      username: username,
+    }
+    // @ts-ignore
+    updates[`/${USERS}/${newPostKey}`] = postData
+    // @ts-ignore
+    // updates['/user-posts/' + newPostKey] = postData;
+
+    update(ref(db.current), updates)
+  }, [])
+
+  const onJoin = () => {
+    // const userId = Math.random().toString(32).substring(2)
+    // myUserId.current = userId
+    // joinUser(userId, userName)
+    setStatus("join")
+  }
 
   return (
     <div>
@@ -74,15 +129,18 @@ const Home: NextPage<HomeProps> = ({config}) => {
 
       <main className={styles.content}>
         <h1 className="title">ゆるチャ</h1>
+        {/* <div>{userList.length}人参加中</div> */}
         <div className="box">
           {status === "join" ? (
-            <div>
-              {messageList.map(data => (
-                <div className={styles.message_box}>
-                  <div className={styles.message_name}>{data.username}</div>
-                  <div>{data.message}</div>
-                </div>
-              ))}
+            <>
+              <div className={styles.box}>
+                {messageList.map((data, index) => (
+                  <div key={index} className={styles.message_box}>
+                    <div className={styles.message_name}>{data.username}<span className={styles.message_date}>{data.date}</span></div>
+                    <div>{data.message}</div>
+                  </div>
+                ))}
+              </div>
               <div className={styles.chat_write_box}>
                 <input
                   className="input is-rounded"
@@ -103,7 +161,7 @@ const Home: NextPage<HomeProps> = ({config}) => {
                   送信
                 </button>
               </div>
-            </div>
+            </>
           ) : (
             <>
               <div className="field">
@@ -121,9 +179,7 @@ const Home: NextPage<HomeProps> = ({config}) => {
               </div>
               <button
                 className="button is-primary"
-                onClick={() => {
-                  setStatus("join")
-                }}
+                onClick={() => onJoin()}
               >
                 参加
               </button>
